@@ -184,8 +184,6 @@ result_qwen7b_dpo/*
 
 */*.pdf
 *.pdf
-*/*.png
-*.png
 *.json
 */*.json
 prediction/
