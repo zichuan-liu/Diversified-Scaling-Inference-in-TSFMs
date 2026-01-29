@@ -149,92 +149,84 @@ def plot_perturbation_curve(
 
     n_curves = len(similarities)
     if n_curves == 0:
-        raise ValueError("数据不能为空，至少传入一组曲线数据")
-    # 校验各组数据长度一致
+        raise ValueError("Input data must not be empty; at least one curve is required")
     data_groups = [perturb_perfs, perturb_stds, none_baselines]
     data_names = ["perturb_perfs", "perturb_stds", "none_baselines"]
     for idx, (data, name) in enumerate(zip(data_groups, data_names)):
         if len(data) != n_curves:
-            raise ValueError(f"数据长度不匹配：{name} 长度为 {len(data)}，与 similarities 长度 {n_curves} 不一致")
-    # 校验每组内部数据长度一致
+            raise ValueError(f"Length mismatch: {name} has length {len(data)}, "
+                             f"but similarities has length {n_curves}")
     for i in range(n_curves):
         group_len = len(similarities[i])
         if len(perturb_perfs[i]) != group_len or len(perturb_stds[i]) != group_len:
-            raise ValueError(f"第 {i+1} 组数据内部长度不匹配：similarity 长度 {group_len}，与 perf/std 长度不一致")
+            raise ValueError(
+            f"Inner length mismatch in group {i + 1}: "
+            f"similarities has length {group_len}, "
+            f"but perturb_perfs/perturb_stds lengths do not match."
+        )
     
-    # 新增：默认曲线标签（未传入时自动生成）
     if curve_labels is None:
         curve_labels = [f"Curve {i+1}" for i in range(n_curves)]
     if len(curve_labels) != n_curves:
-        raise ValueError(f"曲线标签长度 {len(curve_labels)} 与数据组数 {n_curves} 不一致")
+        raise ValueError(
+        f"Curve label length {len(curve_labels)} does not match "
+        f"the number of curves ({n_curves})."
+    )
 
-    # ===================== 2. 多组扩展黄绿系学术配色（支持循环复用） =====================
-    # 主配色：深浅搭配，避免视觉冲突，支持多组曲线
     color_palette = [
-        (# 组1
-         '#E1D5E7',  # 浅紫（阴影）
-         '#6A0DAD',  # 深紫（曲线）
-         '#D32F2F',  # 深红（数据点）
-         '#6A0DAD'   # 深灰（基准线）
+        (
+         '#E1D5E7',  
+         '#6A0DAD', 
+         '#D32F2F', 
+         '#6A0DAD'   
         ),
-        (# 组2
-         '#D5E8D4',  # 浅绿（阴影）
-         '#2E8B57',  # 深绿（曲线）
-         '#FF6347',  # 橙红（数据点）
-         '#2E8B57'   # 中灰（基准线）
+        (
+         '#D5E8D4',  
+         '#2E8B57', 
+         '#FF6347',  
+         '#2E8B57'   
         ),
-        (# 组3
-         '#DCEAFB',  # 浅蓝（阴影）
-         '#4169E1',  # 深蓝（曲线）
-         '#FFD700',  # 金黄（数据点）
-         '#A9A9A9'   # 浅灰（基准线）
+        (
+         '#DCEAFB',  
+         '#4169E1',  
+         '#FFD700',  
+         '#A9A9A9'   
         ),
-        (# 组4
-         '#FFF2CC',  # 浅黄（阴影）
-         '#DAA520',  # 深黄（曲线）
-         '#9932CC',  # 紫蓝（数据点）
-         '#C0C0C0'   # 亮灰（基准线）
+        (
+         '#FFF2CC',  
+         '#DAA520', 
+         '#9932CC', 
+         '#C0C0C0' 
         )
     ]
-    # 配色循环复用（支持超过4组数据）
     def get_group_colors(idx):
         return color_palette[idx % len(color_palette)]
 
-    # ===================== 3. 多组数据批量处理（循环处理每组数据） =====================
-    # 保存所有组的处理结果（便于后续统一调整坐标轴范围）
     all_processed_data = []
 
     for i in range(n_curves):
-        # 提取当前组数据
         similarity = similarities[i]
         perturb_perf = perturb_perfs[i]
         perturb_std = perturb_stds[i]
 
-        # --- A. 原始数据排序 (用于绘制散点和作为插值基础) ---
         sorted_idx = np.argsort(similarity)
         x_raw = np.array(similarity)[sorted_idx]
         y_raw = np.array(perturb_perf)[sorted_idx]
         std_raw = np.array(perturb_std)[sorted_idx]
 
-        # --- B. 生成平滑数据 (仅用于绘制曲线和阴影) ---
-        # 1. 创建密集网格：在最小和最大x之间生成300个点，保证线条圆滑
         x_dense = np.linspace(x_raw.min(), x_raw.max(), 300)
         
-        # 2. 线性插值：将稀疏的原始点映射到密集网格上
         f_y = interp1d(x_raw, y_raw, kind='linear', fill_value="extrapolate")
         f_std = interp1d(x_raw, std_raw, kind='linear', fill_value="extrapolate")
         y_dense = f_y(x_dense)
         std_dense = f_std(x_dense)
         
-        # 3. 高斯平滑：对密集数据进行滤波，去除折线感
         y_smooth_mean = gaussian_filter1d(y_dense, sigma=SMOOTHING_SIGMA)
         std_smooth = gaussian_filter1d(std_dense, sigma=SMOOTHING_SIGMA)
         
-        # 4. 计算平滑后的上下界
         y_smooth_upper = y_smooth_mean + std_smooth
         y_smooth_lower = y_smooth_mean - std_smooth
 
-        # 保存当前组处理结果
         all_processed_data.append({
             "x_raw": x_raw,
             "y_raw": y_raw,
@@ -248,16 +240,11 @@ def plot_perturbation_curve(
             "colors": get_group_colors(i)
         })
 
-    # ===================== 4. 多组曲线批量绘图 =====================
     fig, ax = plt.subplots(figsize=(7, 5))
 
-    # 循环绘制每组数据（先绘制平滑部分，再绘制原始数据，保证层级正确）
     for processed_data in all_processed_data:
-        # 提取当前组数据和配色
         color_fill, color_curve, color_data, color_baseline = processed_data["colors"]
         
-        # --- 绘制平滑部分 (使用 dense/smooth 数据) ---
-        # 阴影
         ax.fill_between(
             processed_data["x_dense"],
             processed_data["y_smooth_lower"], 
@@ -267,7 +254,6 @@ def plot_perturbation_curve(
             edgecolor='none'
         )
 
-        # 曲线（带标签，用于图例）
         ax.plot(
             processed_data["x_dense"],
             processed_data["y_smooth_mean"], 
@@ -277,8 +263,6 @@ def plot_perturbation_curve(
             label=f"Perturbed sample on {processed_data['label']}"
         )
 
-        # --- 绘制原始部分 (使用 raw 数据，确保点位置真实) ---
-        # 数据点 + 误差棒（zorder=10 保证在最上层）
         ax.errorbar(
             processed_data["x_raw"],
             processed_data["y_raw"],
@@ -292,7 +276,6 @@ def plot_perturbation_curve(
             zorder=10,
         )
 
-        # 基准线（虚线，带标签）
         ax.axhline(
             y=processed_data["baseline"], 
             color=color_baseline, 
@@ -301,28 +284,22 @@ def plot_perturbation_curve(
             label=f"None perturbation on {processed_data['label']}"
         )
 
-    # ===================== 5. 全局美化与坐标轴调整（兼顾所有组数据） =====================
     ax.set_xlabel('Cosine Similarity', fontsize=14, fontweight='bold')
     ax.set_ylabel(y_label, fontsize=14, fontweight='bold')
 
-    # 动态调整Y轴范围 (兼顾所有组的平滑曲线和原始点的极值)
     all_data_min = []
     all_data_max = []
     for processed_data in all_processed_data:
-        # 收集所有组的最小值和最大值
         data_min = min(processed_data["y_smooth_lower"].min(), (processed_data["y_raw"] - processed_data["std_raw"]).min())
         data_max = max(processed_data["y_smooth_upper"].max(), (processed_data["y_raw"] + processed_data["std_raw"]).max())
         all_data_min.append(data_min)
         all_data_max.append(data_max)
-    # 全局极值计算
     global_min = min(all_data_min)
     global_max = max(all_data_max)
-    # 留一点余量，且如果是MSE确保不小于0
     y_margin = (global_max - global_min) * 0.1
     y_btm = max(0, global_min - y_margin) if "MSE" in y_label else global_min - y_margin
     y_top = global_max + y_margin
 
-    # 动态调整X轴范围（兼顾所有组的相似度范围）
     all_x_min = [processed_data["x_raw"].min() for processed_data in all_processed_data]
     all_x_max = [processed_data["x_raw"].max() for processed_data in all_processed_data]
     x_btm = min(all_x_min) - 0.002
@@ -336,9 +313,7 @@ def plot_perturbation_curve(
     ax.spines['right'].set_visible(False)
     ax.grid(alpha=0.5, linestyle='-', linewidth=0.5, color='#dcdcdc')
     
-    # 图例（去重，仅显示关键标签，loc='best' 自动优化位置）
     handles, labels = ax.get_legend_handles_labels()
-    # 去重逻辑（保留唯一标签）
     unique_handles_labels = []
     seen_labels = set()
     for handle, label in zip(handles, labels):
@@ -355,7 +330,6 @@ def plot_perturbation_curve(
 
     plt.tight_layout()
 
-    # ===================== 6. 保存逻辑（与原函数保持一致） =====================
     if len(o_dir) > 0:
         os.makedirs(o_dir, exist_ok=True)
         task_path = os.path.join(o_dir, task_name)
